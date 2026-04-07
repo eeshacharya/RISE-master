@@ -139,4 +139,5 @@ if __name__ == '__main__':
     print("  Local URL:  http://localhost:8080")
     print("  Network:    http://0.0.0.0:8080")
     print("="*55 + "\n")
-    app.run(host='0.0.0.0', port=8080, threaded=True, debug=False)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, threaded=True, debug=False)
