@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XAI Saliency Lab — RISE · LIME · GradCAM</title>
+  <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #07070f;
+      --card:    #0e0e22;
+      --card2:   #14142e;
+      --border:  #1c1c42;
+      --accent:  #22d3ee;
+      --purple:  #a78bfa;
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+      --rise:    #f87171;
+      --lime:    #4ade80;
+      --gcam:    #fbbf24;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;line-height:1.6}
+
+    /* ── Header ─────────────────────────────────────────── */
+    header{
+      background:linear-gradient(135deg,#080818 0%,#10103a 100%);
+      border-bottom:1px solid var(--border);
+      padding:20px 40px;
+      display:flex;align-items:center;gap:16px;
+      position:sticky;top:0;z-index:100;
+    }
+    .logo{
+      width:44px;height:44px;
+      background:linear-gradient(135deg,var(--accent),var(--purple));
+      border-radius:10px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:20px;flex-shrink:0;
+    }
+    .hdr-text h1{
+      font-size:1.25rem;font-weight:700;
+      background:linear-gradient(90deg,var(--accent),var(--purple));
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    }
+    .hdr-text p{color:var(--muted);font-size:0.75rem;margin-top:1px}
+    .hdr-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+    .counter-badge{
+      background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);
+      color:var(--accent);padding:5px 14px;border-radius:999px;
+      font-size:0.75rem;font-family:'Space Mono',monospace;
+    }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    main{max-width:1400px;margin:0 auto;padding:28px 20px}
+    .section{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;margin-bottom:24px}
+
+    /* ── Info bar ───────────────────────────────────────── */
+    .info-bar{
+      background:linear-gradient(135deg,rgba(34,211,238,.07),rgba(167,139,250,.07));
+      border:1px solid rgba(34,211,238,.2);
+      border-radius:12px;padding:14px 20px;margin-bottom:24px;
+      font-size:0.82rem;color:var(--muted);line-height:1.7;
+    }
+    .info-bar b{color:var(--accent)}
+    .info-bar .r{color:var(--rise)} .info-bar .l{color:var(--lime)} .info-bar .g{color:var(--gcam)}
+
+    /* ── Upload ─────────────────────────────────────────── */
+    .drop-zone{
+      border:2px dashed var(--border);border-radius:12px;padding:44px;
+      text-align:center;cursor:pointer;transition:all .2s;position:relative;
+    }
+    .drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:rgba(34,211,238,.04)}
+    .drop-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .drop-icon{font-size:2.8rem;margin-bottom:10px}
+    .drop-title{font-size:1rem;font-weight:600;margin-bottom:4px}
+    .drop-sub{color:var(--muted);font-size:0.8rem}
+    .preview-wrap{display:none;text-align:center;margin-top:18px}
+    .preview-wrap img{max-height:180px;border-radius:8px;border:1px solid var(--border)}
+    .preview-name{margin-top:6px;font-size:0.78rem;color:var(--muted)}
+    .btn-row{display:flex;justify-content:center;margin-top:18px}
+    .btn{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:11px 28px;border-radius:8px;font-weight:600;font-size:0.88rem;
+      cursor:pointer;border:none;transition:all .2s;font-family:'Inter',sans-serif;
+    }
+    .btn-primary{background:linear-gradient(135deg,var(--accent),var(--purple));color:#050510}
+    .btn-primary:hover:not(:disabled){opacity:.9;transform:translateY(-1px);box-shadow:0 4px 20px rgba(34,211,238,.3)}
+    .btn-primary:disabled{opacity:.35;cursor:not-allowed;transform:none}
+
+    /* ── Progress ───────────────────────────────────────── */
+    #progress-sec{display:none}
+    .prog-hdr{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+    .spinner{width:22px;height:22px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .prog-title{font-weight:600;font-size:.92rem}
+    .prog-sub{color:var(--muted);font-size:.78rem}
+    .prog-pct{margin-left:auto;font-family:'Space Mono',monospace;font-size:1.05rem;color:var(--accent)}
+    .prog-bar-outer{background:var(--card2);border-radius:999px;height:7px;overflow:hidden}
+    .prog-bar-inner{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:999px;transition:width .4s ease;width:0%}
+    .step-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+    .pill{padding:3px 10px;border-radius:4px;font-size:.7rem;font-family:'Space Mono',monospace;background:var(--card2);border:1px solid var(--border);color:var(--muted);transition:all .3s}
+    .pill.active{border-color:var(--accent);color:var(--accent)}
+    .pill.done{border-color:var(--lime);color:var(--lime)}
+
+    /* ── Results header ─────────────────────────────────── */
+    #results-sec{display:none}
+    .res-hdr{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:22px}
+    .res-hdr h2{font-size:1.05rem;font-weight:700;margin-bottom:2px}
+    .res-hdr p{font-size:.8rem;color:var(--muted)}
+    .badges{display:flex;gap:10px;flex-wrap:wrap}
+    .badge-box{padding:9px 18px;border-radius:9px}
+    .badge-class{background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3)}
+    .badge-conf{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3)}
+    .badge-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+    .badge-value{font-size:1rem;font-weight:700}
+    .badge-class .badge-value{color:var(--accent)}
+    .badge-conf .badge-value{color:var(--lime)}
+
+    /* ── Methods grid ───────────────────────────────────── */
+    .methods-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+    @media(max-width:1100px){.methods-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:600px){.methods-grid{grid-template-columns:1fr}}
+    .method-card{background:var(--card2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .mc-header{padding:10px 14px;display:flex;align-items:center;gap:7px;border-bottom:1px solid var(--border)}
+    .mc-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+    .mc-name{font-weight:600;font-size:.88rem}
+    .mc-desc{margin-left:auto;font-size:.68rem;color:var(--muted)}
+    .mc-img{padding:10px}
+    .mc-img img{width:100%;border-radius:7px;display:block}
+    .mc-scores{display:flex;gap:7px;padding:0 12px 12px}
+    .score-chip{flex:1;background:var(--card);border-radius:6px;padding:6px 8px;text-align:center}
+    .score-chip .sc-label{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .score-chip .sc-val{font-size:.88rem;font-weight:700;font-family:'Space Mono',monospace}
+    .del-val{color:var(--rise)}
+    .ins-val{color:var(--lime)}
+
+    /* ── Comparison table ───────────────────────────────── */
+    .compare-table{width:100%;border-collapse:collapse;font-size:.82rem}
+    .compare-table th{padding:8px 14px;text-align:left;color:var(--muted);font-weight:500;font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border)}
+    .compare-table td{padding:9px 14px;border-bottom:1px solid rgba(28,28,66,.6)}
+    .compare-table tr:last-child td{border-bottom:none}
+    .compare-table tr:hover td{background:rgba(34,211,238,.03)}
+    .method-name{display:flex;align-items:center;gap:8px;font-weight:600}
+    .best-tag{background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.4);color:var(--lime);font-size:.6rem;padding:1px 6px;border-radius:4px;font-family:'Space Mono',monospace}
+
+    /* ── AUC Curves ─────────────────────────────────────── */
+    .curves-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    @media(max-width:900px){.curves-grid{grid-template-columns:1fr}}
+    .curve-card{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:12px}
+    .curve-card h3{font-size:.82rem;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+    .plotly-box{width:100%;aspect-ratio:1/1}
+    .curves-legend{font-size:.76rem;color:var(--muted);margin-bottom:16px;line-height:1.6}
+    .curves-legend .r{color:var(--rise)} .curves-legend .g2{color:var(--lime)}
+
+    /* ── Gallery ────────────────────────────────────────── */
+    .gallery-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .gallery-hdr h2{font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px}
+    .live-pill{background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.4);color:var(--rise);padding:2px 10px;border-radius:999px;font-size:.68rem;display:flex;align-items:center;gap:5px}
+    .live-dot{width:6px;height:6px;border-radius:50%;background:var(--rise);animation:livepulse 1.4s infinite}
+    @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.25}}
+    .gallery-meta{font-size:.72rem;color:var(--muted)}
+    .gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+    .gallery-item{background:var(--card2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:all .2s}
+    .gallery-item:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(34,211,238,.15)}
+    .gallery-item img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+    .gi-info{padding:8px}
+    .gi-class{font-size:.73rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .gi-conf{font-size:.63rem;color:var(--muted);font-family:'Space Mono',monospace}
+    .gallery-empty{text-align:center;color:var(--muted);padding:36px;font-size:.88rem;grid-column:1/-1}
+
+    /* ── Modal ──────────────────────────────────────────── */
+    #modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:500;overflow-y:auto;padding:32px 16px}
+    #modal.show{display:block}
+    .modal-box{background:var(--card);border:1px solid var(--border);border-radius:16px;max-width:1200px;margin:0 auto;padding:28px;position:relative}
+    .modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1}
+    .modal-close:hover{color:var(--text)}
+    .modal-methods{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+    @media(max-width:900px){.modal-methods{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:500px){.modal-methods{grid-template-columns:1fr}}
+
+    /* ── Queue notice ───────────────────────────────────── */
+    #queue-notice{display:none;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 16px;margin-top:12px;font-size:.8rem;color:var(--gcam);text-align:center}
+
+    /* ── Misc ───────────────────────────────────────────── */
+    .section-title{font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:4px}
+    .divider{border:none;border-top:1px solid var(--border);margin:18px 0}
+  </style>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">🔬</div>
+  <div class="hdr-text">
+    <h1>XAI Saliency Comparison Lab</h1>
+    <p>RISE · LIME · GradCAM — ResNet-50 · ImageNet-1K</p>
+  </div>
+  <div class="hdr-right">
+    <span class="counter-badge" id="counter">0 analyses</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ─── Info ──────────────────────────────────────────────────────────── -->
+  <div class="info-bar">
+    <b>How it works:</b>
+    Upload any photo and the server runs three XAI methods on a <b>ResNet-50</b> model:
+    <span class="r"><b>RISE</b></span> randomly masks the image and measures prediction drop,
+    <span class="l"><b>LIME</b></span> fits a local linear model around superpixel perturbations, and
+    <span class="g"><b>GradCAM</b></span> propagates class gradients back to the last conv layer.
+    Each method is scored with <b>Deletion AUC ↓</b> (lower = better: important pixels identified efficiently)
+    and <b>Insertion AUC ↑</b> (higher = better: prediction recovers faster with fewer pixels).
+  </div>
+
+  <!-- ─── Upload ────────────────────────────────────────────────────────── -->
+  <div class="section">
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept="image/*">
+      <div class="drop-icon">📤</div>
+      <div class="drop-title">Drop an image here, or click to select</div>
+      <div class="drop-sub">JPEG · PNG · BMP · WebP · up to 20 MB — any ImageNet-compatible photo works</div>
+    </div>
+    <div class="preview-wrap" id="preview-wrap">
+      <img id="preview-img" src="" alt="preview">
+      <div class="preview-name" id="preview-name"></div>
+    </div>
+    <div id="queue-notice">⏳ Server is busy — your job is queued and will start shortly.</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="analyze-btn" disabled onclick="analyzeImage()">
+        ⚡&nbsp; Analyze Image
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── Progress ─────────────────────────────────────────────────────── -->
+  <div class="section" id="progress-sec">
+    <div class="prog-hdr">
+      <div class="spinner"></div>
+      <div>
+        <div class="prog-title">Processing your image…</div>
+        <div class="prog-sub" id="prog-label">Queued</div>
+      </div>
+      <div class="prog-pct" id="prog-pct">0%</div>
+    </div>
+    <div class="prog-bar-outer"><div class="prog-bar-inner" id="prog-bar"></div></div>
+    <div class="step-pills">
+      <span class="pill" id="p-gradcam">GradCAM</span>
+      <span class="pill" id="p-lime">LIME</span>
+      <span class="pill" id="p-rise">RISE</span>
+      <span class="pill" id="p-auc">AUC Curves</span>
+      <span class="pill" id="p-render">Rendering</span>
+    </div>
+  </div>
+
+  <!-- ─── Results ──────────────────────────────────────────────────────── -->
+  <div id="results-sec">
+
+    <!-- Header row -->
+    <div class="section" style="padding-bottom:20px">
+      <div class="res-hdr">
+        <div>
+          <div class="section-title">📊 Analysis Results</div>
+          <p>Saliency maps and quantitative AUC evaluation for your image</p>
+        </div>
+        <div class="badges">
+          <div class="badge-box badge-class">
+            <div class="badge-label">Predicted Class</div>
+            <div class="badge-value" id="res-class">—</div>
+          </div>
+          <div class="badge-box badge-conf">
+            <div class="badge-label">Confidence</div>
+            <div class="badge-value" id="res-conf">—</div>
+          </div>
+        </div>
+      </div>
+      <hr class="divider">
+
+      <!-- 4-column saliency maps -->
+      <div class="methods-grid">
+        <!-- Original -->
+        <div class="method-card">
+          <div class="mc-header">
+            <div class="mc-dot" style="background:#94a3b8"></div>
+            <div class="mc-name">Original</div>
+            <div class="mc-desc">Input Image</div>
+          </div>
+          <div class="mc-img"><img id="r-orig" src="" alt="original"></div>
+          <div class="mc-scores">
+            <div class="score-chip" style="flex:1">
+              <div class="sc-label">Model</div>
+              <div class="sc-val" style="color:var(--accent);font-size:.72rem">ResNet-50</div>
+            </div>
+          </div>
+        </div>
+        <!-- RISE -->
+        <div class="method-card">
+          <div class="mc-header">
+            <div class="mc-dot" style="background:var(--rise)"></div>
+            <div class="mc-name" style="color:var(--rise)">RISE</div>
+            <div class="mc-desc">Mask sampling</div>
+          </div>
+          <div class="mc-img"><img id="r-rise" src="" alt="RISE"></div>
+          <div class="mc-scores">
+            <div class="score-chip">
+              <div class="sc-label">Del AUC ↓</div>
+              <div class="sc-val del-val" id="rise-del">—</div>
+            </div>
+            <div class="score-chip">
+              <div class="sc-label">Ins AUC ↑</div>
+              <div class="sc-val ins-val" id="rise-ins">—</div>
+            </div>
+          </div>
+        </div>
+        <!-- LIME -->
+        <div class="method-card">
+          <div class="mc-header">
+            <div class="mc-dot" style="background:var(--lime)"></div>
+            <div class="mc-name" style="color:var(--lime)">LIME</div>
+            <div class="mc-desc">Local surrogates</div>
+          </div>
+          <div class="mc-img"><img id="r-lime" src="" alt="LIME"></div>
+          <div class="mc-scores">
+            <div class="score-chip">
+              <div class="sc-label">Del AUC ↓</div>
+              <div class="sc-val del-val" id="lime-del">—</div>
+            </div>
+            <div class="score-chip">
+              <div class="sc-label">Ins AUC ↑</div>
+              <div class="sc-val ins-val" id="lime-ins">—</div>
+            </div>
+          </div>
+        </div>
+        <!-- GradCAM -->
+        <div class="method-card">
+          <div class="mc-header">
+            <div class="mc-dot" style="background:var(--gcam)"></div>
+            <div class="mc-name" style="color:var(--gcam)">GradCAM</div>
+            <div class="mc-desc">Gradient maps</div>
+          </div>
+          <div class="mc-img"><img id="r-gcam" src="" alt="GradCAM"></div>
+          <div class="mc-scores">
+            <div class="score-chip">
+              <div class="sc-label">Del AUC ↓</div>
+              <div class="sc-val del-val" id="gcam-del">—</div>
+            </div>
+            <div class="score-chip">
+              <div class="sc-label">Ins AUC ↑</div>
+              <div class="sc-val ins-val" id="gcam-ins">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison table -->
+      <div class="section-title" style="margin-bottom:10px">⚖️ Side-by-Side Comparison</div>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Deletion AUC ↓</th>
+            <th>Insertion AUC ↑</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="method-name"><span style="color:var(--rise)">●</span> RISE</span></td>
+            <td><span class="del-val" style="font-family:'Space Mono',monospace" id="t-rise-del">—</span></td>
+            <td><span class="ins-val" style="font-family:'Space Mono',monospace" id="t-rise-ins">—</span></td>
+            <td style="color:var(--muted);font-size:.76rem">300 random binary masks</td>
+          </tr>
+          <tr>
+            <td><span class="method-name"><span style="color:var(--lime)">●</span> LIME</span></td>
+            <td><span class="del-val" style="font-family:'Space Mono',monospace" id="t-lime-del">—</span></td>
+            <td><span class="ins-val" style="font-family:'Space Mono',monospace" id="t-lime-ins">—</span></td>
+            <td style="color:var(--muted);font-size:.76rem">100 superpixel perturbations</td>
+          </tr>
+          <tr>
+            <td><span class="method-name"><span style="color:var(--gcam)">●</span> GradCAM</span></td>
+            <td><span class="del-val" style="font-family:'Space Mono',monospace" id="t-gcam-del">—</span></td>
+            <td><span class="ins-val" style="font-family:'Space Mono',monospace" id="t-gcam-ins">—</span></td>
+            <td style="color:var(--muted);font-size:.76rem">Gradients @ layer4</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- AUC Curves -->
+    <div class="section">
+      <div class="section-title">📈 Insertion / Deletion AUC Curves</div>
+      <div class="curves-legend">
+        <span class="r"><b>Deletion ↓</b></span>: pixels are removed in order of decreasing saliency. Confidence should drop fast — a <b>lower AUC is better</b>.&nbsp;&nbsp;
+        <span class="g2"><b>Insertion ↑</b></span>: pixels are added back to a blurred baseline. Confidence should rise fast — a <b>higher AUC is better</b>.
+      </div>
+      <div class="curves-grid">
+        <div class="curve-card">
+          <h3><span style="color:var(--rise)">●</span> RISE</h3>
+          <div class="plotly-box" id="chart-rise"></div>
+        </div>
+        <div class="curve-card">
+          <h3><span style="color:var(--lime)">●</span> LIME</h3>
+          <div class="plotly-box" id="chart-lime"></div>
+        </div>
+        <div class="curve-card">
+          <h3><span style="color:var(--gcam)">●</span> GradCAM</h3>
+          <div class="plotly-box" id="chart-gcam"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /results-sec -->
+
+  <!-- ─── Gallery ──────────────────────────────────────────────────────── -->
+  <div class="section" id="gallery-sec">
+    <div class="gallery-hdr">
+      <h2>🖼&nbsp; Community Analyses
+        <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+      </h2>
+      <span class="gallery-meta">Refreshes every 10 s — click any card to view full results</span>
+    </div>
+    <div class="gallery-grid" id="gallery-grid">
+      <div class="gallery-empty">No analyses yet — upload an image to get started!</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ─── Modal (gallery detail) ─────────────────────────────────────────── -->
+<div id="modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ────────────────────────────────────────────────────────────────────────────
+// UPLOAD & PREVIEW
+// ────────────────────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const analyzeBtn = document.getElementById('analyze-btn');
+let selectedFile = null;
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(file) {
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('preview-img').src = e.target.result;
+    document.getElementById('preview-name').textContent = file.name;
+    document.getElementById('preview-wrap').style.display = 'block';
+    analyzeBtn.disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ANALYSIS FLOW
+// ────────────────────────────────────────────────────────────────────────────
+let pollTimer = null;
+
+async function analyzeImage() {
+  if (!selectedFile) return;
+  analyzeBtn.disabled = true;
+  document.getElementById('queue-notice').style.display = 'none';
+  document.getElementById('progress-sec').style.display = 'block';
+  document.getElementById('results-sec').style.display = 'none';
+  resetSteps();
+  updateProgress(0, 'queued');
+
+  const fd = new FormData();
+  fd.append('image', selectedFile);
+
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    startPolling(data.job_id);
+  } catch(e) {
+    showErr(e.message);
+  }
+}
+
+function startPolling(jid) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/status/${jid}`);
+      const data = await res.json();
+      const pct = data.progress || 0;
+
+      if (data.status === 'queued') {
+        document.getElementById('queue-notice').style.display = 'block';
+      } else {
+        document.getElementById('queue-notice').style.display = 'none';
+      }
+
+      updateProgress(pct, data.status);
+
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        const r = await (await fetch(`/result/${jid}`)).json();
+        showResults(r);
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer);
+        showErr(data.error || 'Processing failed');
+      }
+    } catch(e) { /* network blip, keep polling */ }
+  }, 1500);
+}
+
+const STEPS = [
+  { id: 'p-gradcam', lo: 5,  hi: 15,  label: 'Running GradCAM…'    },
+  { id: 'p-lime',    lo: 15, hi: 40,  label: 'Running LIME…'        },
+  { id: 'p-rise',    lo: 40, hi: 75,  label: 'Running RISE…'        },
+  { id: 'p-auc',     lo: 75, hi: 95,  label: 'Computing AUC curves…' },
+  { id: 'p-render',  lo: 95, hi: 100, label: 'Rendering images…'    },
+];
+
+function resetSteps() {
+  STEPS.forEach(s => document.getElementById(s.id).className = 'pill');
+}
+
+function updateProgress(pct, status) {
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('prog-pct').textContent = Math.round(pct) + '%';
+
+  let label = status === 'queued' ? 'Waiting in queue…' : 'Starting…';
+  STEPS.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (pct >= s.hi)       { el.className = 'pill done'; label = s.label; }
+    else if (pct >= s.lo)  { el.className = 'pill active'; label = s.label; }
+    else                   { el.className = 'pill'; }
+  });
+  document.getElementById('prog-label').textContent = label;
+}
+
+function showResults(r) {
+  document.getElementById('progress-sec').style.display = 'none';
+  const sec = document.getElementById('results-sec');
+  sec.style.display = 'block';
+
+  document.getElementById('res-class').textContent = r.class_name;
+  document.getElementById('res-conf').textContent  = r.confidence + '%';
+
+  document.getElementById('r-orig').src = 'data:image/png;base64,' + r.original_img;
+  document.getElementById('r-rise').src = 'data:image/png;base64,' + r.rise_img;
+  document.getElementById('r-lime').src = 'data:image/png;base64,' + r.lime_img;
+  document.getElementById('r-gcam').src = 'data:image/png;base64,' + r.gradcam_img;
+
+  const fmt = v => v.toFixed(4);
+  ['rise','lime','gradcam'].forEach(m => {
+    const k = m === 'gradcam' ? 'gcam' : m;
+    const d = r[m+'_del_auc'], i2 = r[m+'_ins_auc'];
+    document.getElementById(`${k}-del`).textContent   = fmt(d);
+    document.getElementById(`${k}-ins`).textContent   = fmt(i2);
+    document.getElementById(`t-${k}-del`).textContent = fmt(d);
+    document.getElementById(`t-${k}-ins`).textContent = fmt(i2);
+  });
+
+  // Best-method badges
+  markBest('del', [
+    {id:'t-rise-del', v:r.rise_del_auc},
+    {id:'t-lime-del', v:r.lime_del_auc},
+    {id:'t-gcam-del', v:r.gradcam_del_auc}
+  ], 'min');
+  markBest('ins', [
+    {id:'t-rise-ins', v:r.rise_ins_auc},
+    {id:'t-lime-ins', v:r.lime_ins_auc},
+    {id:'t-gcam-ins', v:r.gradcam_ins_auc}
+  ], 'max');
+
+  drawChart('chart-rise', r.rise_del_scores, r.rise_ins_scores);
+  drawChart('chart-lime', r.lime_del_scores, r.lime_ins_scores);
+  drawChart('chart-gcam', r.gradcam_del_scores, r.gradcam_ins_scores);
+
+  sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  analyzeBtn.disabled = false;
+}
+
+function markBest(mode, items, fn) {
+  const best = items.reduce((b,x) => fn==='min' ? (x.v < b.v ? x : b) : (x.v > b.v ? x : b));
+  const el = document.getElementById(best.id);
+  if (!el.querySelector('.best-tag')) {
+    const tag = document.createElement('span');
+    tag.className = 'best-tag'; tag.textContent = 'BEST';
+    el.parentNode.insertBefore(tag, el.nextSibling);
+  }
+}
+
+function showErr(msg) {
+  document.getElementById('progress-sec').style.display = 'none';
+  analyzeBtn.disabled = false;
+  alert('Error: ' + msg);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PLOTLY CHARTS
+// ────────────────────────────────────────────────────────────────────────────
+function drawChart(divId, delScores, insScores) {
+  const n = delScores.length;
+  const x = Array.from({length:n}, (_,i) => i / (n-1));
+  const el = document.getElementById(divId);
+  const sz = el.clientWidth || 260;
+  const axisStyle = {
+    color:'#64748b', gridcolor:'rgba(28,28,66,0.9)',
+    zeroline:true, zerolinecolor:'rgba(100,116,139,0.3)', zerolinewidth:1,
+    tickfont:{size:9,family:'Space Mono,monospace'},
+    range:[0,1], tick0:0, dtick:0.2,
+    showline:true, linecolor:'#1c1c42', linewidth:1,
+    ticks:'outside', ticklen:3, tickcolor:'#1c1c42',
+  };
+  Plotly.newPlot(divId, [
+    {
+      x, y: delScores, name: 'Deletion',
+      type:'scatter', mode:'lines',
+      line:{color:'#f87171', width:2},
+      fill:'tozeroy', fillcolor:'rgba(248,113,113,0.15)',
+    },
+    {
+      x, y: insScores, name: 'Insertion',
+      type:'scatter', mode:'lines',
+      line:{color:'#4ade80', width:2},
+      fill:'tozeroy', fillcolor:'rgba(74,222,128,0.15)',
+    },
+  ], {
+    paper_bgcolor:'transparent',
+    plot_bgcolor:'transparent',
+    width: sz,
+    height: sz,
+    margin:{t:10, b:36, l:36, r:10},
+    xaxis:{
+      ...axisStyle,
+      title:{text:'Pixels removed / inserted', font:{size:8,color:'#64748b',family:'Inter,sans-serif'}, standoff:6},
+    },
+    yaxis:{
+      ...axisStyle,
+      title:{text:'P(class)', font:{size:8,color:'#64748b',family:'Inter,sans-serif'}, standoff:6},
+    },
+    legend:{
+      font:{size:8.5, color:'#94a3b8', family:'Inter,sans-serif'},
+      bgcolor:'rgba(14,14,34,0.7)',
+      bordercolor:'#1c1c42', borderwidth:1,
+      x:0.04, y:0.97, xanchor:'left', yanchor:'top',
+    },
+    showlegend:true,
+  }, {displayModeBar:false, responsive:false});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// GALLERY
+// ────────────────────────────────────────────────────────────────────────────
+async function refreshGallery() {
+  try {
+    const items = await (await fetch('/gallery')).json();
+    const done = items.filter(i => i.status === 'done');
+    document.getElementById('counter').textContent = done.length + ' analyses';
+    const grid = document.getElementById('gallery-grid');
+    if (!done.length) {
+      grid.innerHTML = '<div class="gallery-empty">No analyses yet — upload an image to get started!</div>';
+      return;
+    }
+    grid.innerHTML = done.map(item => `
+      <div class="gallery-item" onclick="openGallery('${item.job_id}')">
+        <img src="data:image/png;base64,${item.thumbnail}" alt="${item.class_name}" loading="lazy">
+        <div class="gi-info">
+          <div class="gi-class">${item.class_name}</div>
+          <div class="gi-conf">${item.confidence}% conf.</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { /* network error, ignore */ }
+}
+
+async function openGallery(jid) {
+  const res = await fetch(`/result/${jid}`);
+  if (!res.ok) return;
+  const r = await res.json();
+
+  const methDefs = [
+    {key:'original', label:'Original',  color:'#94a3b8', imgKey:'original_img'},
+    {key:'rise',     label:'RISE',      color:'#f87171', imgKey:'rise_img'},
+    {key:'lime',     label:'LIME',      color:'#4ade80', imgKey:'lime_img'},
+    {key:'gradcam',  label:'GradCAM',   color:'#fbbf24', imgKey:'gradcam_img'},
+  ];
+
+  document.getElementById('modal-body').innerHTML = `
+    <h2 style="margin-bottom:14px;font-size:1rem">
+      <span style="color:var(--accent)">${r.class_name}</span>
+      <span style="color:var(--muted);font-size:.8rem;margin-left:8px">${r.confidence}% confidence</span>
+    </h2>
+    <div class="modal-methods">
+      ${methDefs.map(m => `
+        <div class="method-card">
+          <div class="mc-header">
+            <div class="mc-dot" style="background:${m.color}"></div>
+            <div class="mc-name" style="color:${m.color}">${m.label}</div>
+          </div>
+          <div class="mc-img"><img src="data:image/png;base64,${r[m.imgKey]}" style="width:100%;border-radius:7px"></div>
+          ${m.key !== 'original' ? `<div class="mc-scores">
+            <div class="score-chip"><div class="sc-label">Del ↓</div><div class="sc-val del-val">${r[m.key+'_del_auc'].toFixed(4)}</div></div>
+            <div class="score-chip"><div class="sc-label">Ins ↑</div><div class="sc-val ins-val">${r[m.key+'_ins_auc'].toFixed(4)}</div></div>
+          </div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    <hr class="divider">
+    <div class="section-title" style="margin-bottom:12px">📈 AUC Curves</div>
+    <div class="curves-grid">
+      <div class="curve-card"><h3><span style="color:#f87171">●</span> RISE</h3><div class="plotly-box" id="mc-rise"></div></div>
+      <div class="curve-card"><h3><span style="color:#4ade80">●</span> LIME</h3><div class="plotly-box" id="mc-lime"></div></div>
+      <div class="curve-card"><h3><span style="color:#fbbf24">●</span> GradCAM</h3><div class="plotly-box" id="mc-gcam"></div></div>
+    </div>
+  `;
+  document.getElementById('modal').classList.add('show');
+  // Slight delay so DOM is rendered before Plotly measures the divs
+  setTimeout(() => {
+    drawChart('mc-rise', r.rise_del_scores, r.rise_ins_scores);
+    drawChart('mc-lime', r.lime_del_scores, r.lime_ins_scores);
+    drawChart('mc-gcam', r.gradcam_del_scores, r.gradcam_ins_scores);
+  }, 120);
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+}
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// INIT
+// ────────────────────────────────────────────────────────────────────────────
+refreshGallery();
+setInterval(refreshGallery, 10000);
+</script>
+</body>
+</html>
